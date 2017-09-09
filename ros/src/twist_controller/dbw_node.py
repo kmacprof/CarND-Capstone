@@ -72,6 +72,9 @@ class DBWNode(object):
             #                                                     <any other argument you need>)
             # if <dbw is enabled>:
             #   self.publish(throttle, brake, steer)
+            # TODO: Actually control this. For now, just test we can make the
+            # car go.
+            self.publish(0.5, 0, 0)
             rate.sleep()
 
     def publish(self, throttle, brake, steer):
@@ -81,16 +84,16 @@ class DBWNode(object):
         tcmd.pedal_cmd = throttle
         self.throttle_pub.publish(tcmd)
 
-        scmd = SteeringCmd()
-        scmd.enable = True
-        scmd.steering_wheel_angle_cmd = steer
-        self.steer_pub.publish(scmd)
-
-        bcmd = BrakeCmd()
-        bcmd.enable = True
-        bcmd.pedal_cmd_type = BrakeCmd.CMD_TORQUE
-        bcmd.pedal_cmd = brake
-        self.brake_pub.publish(bcmd)
+        # scmd = SteeringCmd()
+        # scmd.enable = True
+        # scmd.steering_wheel_angle_cmd = steer
+        # self.steer_pub.publish(scmd)
+        #
+        # bcmd = BrakeCmd()
+        # bcmd.enable = True
+        # bcmd.pedal_cmd_type = BrakeCmd.CMD_TORQUE
+        # bcmd.pedal_cmd = brake
+        # self.brake_pub.publish(bcmd)
 
 
 if __name__ == '__main__':
