@@ -23,30 +23,77 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 
+def position_distance(a, b):
+    return math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2 + (a.z-b.z)**2)
 
 class WaypointUpdater(object):
     def __init__(self):
         rospy.init_node('waypoint_updater')
 
+        self.base_waypoints = self.wait_for_base_waypoints()
+        self.position = None
+
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
-        rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
 
         # TODO: Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
 
-
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
 
-        # TODO: Add other member variables you need below
+    def wait_for_base_waypoints(self):
+        """
+        The base waypoints never change (confirmed on Slack), so just listen for
+        a single message to get our waypoints. This blocks until we get the
+        message.
 
-        rospy.spin()
+        TODO: Maybe we should just load the base waypoints in this node and get
+        rid of the waypoint loader altogether, or change it into a ROS Service.
+        """
+        lane = rospy.wait_for_message('/base_waypoints', Lane)
+        return lane.waypoints
 
     def pose_cb(self, msg):
-        # TODO: Implement
-        pass
+        """
+        Record the last known pose.
+        """
+        self.position = msg.pose.position
 
-    def waypoints_cb(self, waypoints):
-        # TODO: Implement
-        pass
+    def publish_waypoints(self):
+        """
+        Find closest waypoint and publish the next N waypoints.
+
+        TODO: Does it have to be the closest waypoint ahead of the vehicle, or
+        is it just the closest one? Guidance seems ambiguous.
+        """
+        if self.position is None: return
+
+        min_distance = float('inf')
+        min_index = 0
+        for index in range(len(self.base_waypoints)):
+            waypoint_position = self.base_waypoints[index].pose.pose.position
+            distance = position_distance(self.position, waypoint_position)
+            if distance < min_distance:
+                min_distance = distance
+                min_index = index
+
+        lane = Lane()
+        lane.header.frame_id = '/world'
+        lane.header.stamp = rospy.get_rostime()
+
+        # TODO: Handle index wraparound
+        max_index = min_index + LOOKAHEAD_WPS
+        lane.waypoints = self.base_waypoints[min_index:max_index]
+        self.final_waypoints_pub.publish(lane)
+
+    def run(self):
+        rate = rospy.Rate(10)
+
+        start_time = 0
+        while not start_time:
+            start_time = rospy.Time.now().to_sec()
+
+        while not rospy.is_shutdown():
+            self.publish_waypoints()
+            rate.sleep()
 
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
@@ -70,9 +117,8 @@ class WaypointUpdater(object):
             wp1 = i
         return dist
 
-
 if __name__ == '__main__':
     try:
-        WaypointUpdater()
+        WaypointUpdater().run()
     except rospy.ROSInterruptException:
         rospy.logerr('Could not start waypoint updater node.')
