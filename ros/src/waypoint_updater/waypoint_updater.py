@@ -6,6 +6,8 @@ from styx_msgs.msg import Lane, Waypoint
 
 import math
 
+from waypoint_planner import WaypointPlanner
+
 '''
 This node will publish waypoints from the car's current position to some `x` distance ahead.
 
@@ -23,15 +25,12 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 
-def position_distance(a, b):
-    return math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2 + (a.z-b.z)**2)
 
 class WaypointUpdater(object):
     def __init__(self):
         rospy.init_node('waypoint_updater')
 
-        self.base_waypoints = self.wait_for_base_waypoints()
-        self.position = None
+        self.planner = WaypointPlanner(self.wait_for_base_waypoints())
 
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
 
@@ -55,33 +54,17 @@ class WaypointUpdater(object):
         """
         Record the last known pose.
         """
-        self.position = msg.pose.position
+        self.planner.position = msg.pose.position
 
     def publish_waypoints(self):
-        """
-        Find closest waypoint and publish the next N waypoints.
-
-        TODO: Does it have to be the closest waypoint ahead of the vehicle, or
-        is it just the closest one? Guidance seems ambiguous.
-        """
-        if self.position is None: return
-
-        min_distance = float('inf')
-        min_index = 0
-        for index in range(len(self.base_waypoints)):
-            waypoint_position = self.base_waypoints[index].pose.pose.position
-            distance = position_distance(self.position, waypoint_position)
-            if distance < min_distance:
-                min_distance = distance
-                min_index = index
+        plan_waypoints = self.planner.plan(LOOKAHEAD_WPS)
+        if plan_waypoints is None:
+            return
 
         lane = Lane()
         lane.header.frame_id = '/world'
         lane.header.stamp = rospy.get_rostime()
-
-        # TODO: Handle index wraparound
-        max_index = min_index + LOOKAHEAD_WPS
-        lane.waypoints = self.base_waypoints[min_index:max_index]
+        lane.waypoints = plan_waypoints
         self.final_waypoints_pub.publish(lane)
 
     def run(self):
@@ -116,6 +99,7 @@ class WaypointUpdater(object):
             dist += dl(waypoints[wp1].pose.pose.position, waypoints[i].pose.pose.position)
             wp1 = i
         return dist
+
 
 if __name__ == '__main__':
     try:
