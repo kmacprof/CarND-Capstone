@@ -21,9 +21,6 @@ class WaypointPlanner(object):
         """
         For now, find the closest base waypoint and return the next
         `num_waypoints` base waypoints.
-
-        TODO: Does it have to be the closest waypoint ahead of the vehicle, or
-        is it just the closest one? Guidance seems ambiguous.
         """
         if self.position is None:
             return None
@@ -37,6 +34,10 @@ class WaypointPlanner(object):
                 min_distance = distance
                 min_index = index
 
-        # TODO: handle wraparound
         max_index = min_index + num_waypoints
-        return self.base_waypoints[min_index:max_index]
+        if max_index >= len(self.base_waypoints):
+            max_index -= len(self.base_waypoints)
+            return self.base_waypoints[min_index:] + \
+                self.base_waypoints[:max_index]
+        else:
+            return self.base_waypoints[min_index:max_index]
