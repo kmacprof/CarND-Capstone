@@ -10,6 +10,7 @@ from light_classification.tl_classifier import TLClassifier
 import tf
 import cv2
 import yaml
+from math import sqrt
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -56,6 +57,7 @@ class TLDetector(object):
 
     def waypoints_cb(self, waypoints):
         self.waypoints = waypoints
+        #print str(self.waypoints)
 
     def traffic_cb(self, msg):
         self.lights = msg.lights
@@ -101,7 +103,22 @@ class TLDetector(object):
 
         """
         #TODO implement
-        return 0
+        wp_i=-1
+        min_wp = -1
+        min_dist = 99999
+        if self.waypoints:
+            for wp in self.waypoints.waypoints:
+                wp_i = wp_i+1
+                #print str(wp.pose.pose.position.x)
+                #print str(wp.pose.pose.position.y)
+                x = wp.pose.pose.position.x - pose.position.x
+                y = wp.pose.pose.position.y - pose.position.y
+                dist = sqrt(x*x+y*y)
+                if dist < min_dist:
+                    min_wp = wp_i
+                    min_dist = dist
+            #print "min_wp:", min_wp
+        return min_wp
 
 
     def project_to_image_plane(self, point_in_world):
@@ -177,8 +194,34 @@ class TLDetector(object):
         light_positions = self.config['light_positions']
         if(self.pose):
             car_position = self.get_closest_waypoint(self.pose.pose)
+            if car_position >=0:
+                print car_position #why are we finding the closest waypoint to the car??
+            #probably to use the index to determine what is in front of the vehicle
 
         #TODO find the closest visible traffic light (if one exists)
+        lp_i = -1
+        min_lp_i = -1
+        min_lp_dist = 99999;
+        if car_position >=0:
+            #iterate through light positions, find closest light
+            for lp in light_positions:
+                #print str(lp)
+                lp_i = lp_i + 1
+                lp_x = lp[0]
+                lp_y = lp[1]
+                dx = self.waypoints.waypoints[car_position].pose.pose.position.x - lp_x
+                dy = self.waypoints.waypoints[car_position].pose.pose.position.y - lp_y
+                dist = sqrt(dx*dx+dy*dy)
+                if dist < min_lp_dist:
+                    min_lp_dist = dist
+                    min_lp_i = lp_i
+
+            print min_lp_i;
+            print min_lp_dist;
+            #print light_positions[min_lp_i][0]
+            #print light_positions[min_lp_i][1]
+
+
 
         if light:
             state = self.get_light_state(light)
@@ -189,5 +232,6 @@ class TLDetector(object):
 if __name__ == '__main__':
     try:
         TLDetector()
+
     except rospy.ROSInterruptException:
         rospy.logerr('Could not start traffic node.')
