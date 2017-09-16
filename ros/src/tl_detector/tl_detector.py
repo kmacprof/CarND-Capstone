@@ -11,6 +11,7 @@ import tf
 import cv2
 import yaml
 from math import sqrt
+import numpy as np
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -152,8 +153,24 @@ class TLDetector(object):
 
         #TODO Use tranform and rotation to calculate 2D position of light in image
 
-        x = 0
-        y = 0
+        print str(trans)
+        print str(rot)
+        #print str(point_in_world)
+        objectPoints = np.array([[point_in_world.x, point_in_world.y, point_in_world.z]])
+        rvec = tf.transformations.quaternion_matrix(rot)[:3, :3]
+        tvec = np.array(trans)
+        cameraMatrix = np.array([[fx,  0, image_width/2],
+                                       [ 0, fy, image_height/2],
+                                       [ 0,  0,  1]])
+        distCoeffs = None
+        ret, _ = cv2.projectPoints(objectPoints, rvec, tvec, cameraMatrix, distCoeffs)
+        #print str(ret)
+
+        x = ret[0][0][0]
+        y = ret[0][0][1]
+
+        print x
+        print y
 
         return (x, y)
 
@@ -192,11 +209,26 @@ class TLDetector(object):
         """
         light = None
         light_positions = self.config['light_positions']
+        light_wps = []
+
+        #match light positions to waypoints so we can use the waypoint index nearest to the light
+        #to determine if the light is ahead of the car_position
+
+        for lp in light_positions:
+            #put the light Position into Pose format
+            lpPose = Pose()
+            lpPose.position.x = lp[0] # x
+            lpPose.position.y = lp[1] # y
+            lpPose.position.z = 0
+            lp_wp_i = self.get_closest_waypoint(lpPose)
+            light_wps.append(lp_wp_i)
+
+
+
         if(self.pose):
             car_position = self.get_closest_waypoint(self.pose.pose)
             if car_position >=0:
-                print car_position #why are we finding the closest waypoint to the car??
-            #probably to use the index to determine what is in front of the vehicle
+                print car_position
 
         #TODO find the closest visible traffic light (if one exists)
         lp_i = -1
@@ -212,14 +244,26 @@ class TLDetector(object):
                 dx = self.waypoints.waypoints[car_position].pose.pose.position.x - lp_x
                 dy = self.waypoints.waypoints[car_position].pose.pose.position.y - lp_y
                 dist = sqrt(dx*dx+dy*dy)
-                if dist < min_lp_dist:
+
+                #if the waypoint index closest to the light is ahead of the car position
+                # WARN: This currently cannot handle wrap around!
+                if dist < min_lp_dist and light_wps[lp_i] > car_position:
                     min_lp_dist = dist
                     min_lp_i = lp_i
 
-            print min_lp_i;
-            print min_lp_dist;
-            #print light_positions[min_lp_i][0]
-            #print light_positions[min_lp_i][1]
+            #print min_lp_i;
+            #print min_lp_dist;
+
+            #determine if the light is in the camera frame.
+            #You would think there is a more sophisticated way to do this, but I
+            #don't think we have enough information on the camera Pose / FOV
+            #we also don't have the traffic light heights
+            if min_lp_dist < 175.0: #you can see a light generally at 175m distance
+                #light = light_wps[lp_i] #waypoint position of the nearest light
+                print min_lp_i
+                light = self.lights[min_lp_i]
+                light_wp = light_wps[min_lp_i]
+                print str(light.pose)
 
 
 
