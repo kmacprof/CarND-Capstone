@@ -11,7 +11,6 @@ from conf import conf
 
 sio = socketio.Server()
 app = Flask(__name__)
-bridge = Bridge(conf)
 
 #
 # JLM: Changed to only send the latest message for each topic, rather
@@ -29,7 +28,7 @@ def connect(sid, environ):
 def send(topic, data):
     msgs[topic] = data
 
-bridge.register_server(send)
+bridge = Bridge(conf, send)
 
 @sio.on('telemetry')
 def telemetry(sid, data):
