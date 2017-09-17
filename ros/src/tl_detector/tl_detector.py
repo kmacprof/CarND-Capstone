@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import rospy
 from std_msgs.msg import Int32
-from geometry_msgs.msg import PoseStamped, Pose
+from geometry_msgs.msg import PoseStamped, Pose, Point
 from styx_msgs.msg import TrafficLightArray, TrafficLight
 from styx_msgs.msg import Lane
 from sensor_msgs.msg import Image
@@ -41,6 +41,8 @@ class TLDetector(object):
         self.config = yaml.load(config_string)
 
         self.upcoming_red_light_pub = rospy.Publisher('/traffic_waypoint', Int32, queue_size=1)
+
+        self.image_color_traffic = rospy.Publisher('/image_color_traffic', Image, queue_size=1)
 
         self.bridge = CvBridge()
         self.light_classifier = TLClassifier()
@@ -153,12 +155,16 @@ class TLDetector(object):
 
         #TODO Use tranform and rotation to calculate 2D position of light in image
 
-        print str(trans)
-        print str(rot)
+        #print str(trans)
+        #print str(rot)
         #print str(point_in_world)
-        objectPoints = np.array([[point_in_world.x, point_in_world.y, point_in_world.z]])
+
+        #1. Try to project the camera points using the base_link to global tf with traffic light points in global frame
+        objectPoints = np.array([[point_in_world.x, point_in_world.y,point_in_world.z]])
         rvec = tf.transformations.quaternion_matrix(rot)[:3, :3]
         tvec = np.array(trans)
+        #print str(rot)
+        #print str(rvec)
         cameraMatrix = np.array([[fx,  0, image_width/2],
                                        [ 0, fy, image_height/2],
                                        [ 0,  0,  1]])
@@ -169,10 +175,35 @@ class TLDetector(object):
         x = ret[0][0][0]
         y = ret[0][0][1]
 
-        print x
-        print y
 
-        return (x, y)
+        # Try to project the camera points using the traffic light point in car_frame
+        # Create transformation matrix
+        T = self.listener.fromTranslationRotation(trans, rot)
+
+        # Transform point from world to camera using homogeneous coordinates
+        point_in_world_h = np.array([[point_in_world.x],
+                                     [point_in_world.y],
+                                     [point_in_world.z],
+                                     [1.0]])
+
+        point_in_camera_h = np.dot(T, point_in_world_h)
+
+        # Output as a Point
+        point_in_camera = Point(point_in_camera_h[0][0],
+                                point_in_camera_h[1][0],
+                                point_in_camera_h[2][0])
+        #print "point in camera: ", point_in_camera
+        point_in_camera_np = np.array([[point_in_camera.x, point_in_camera.y,point_in_camera.z]])
+        ret, _ = cv2.projectPoints(point_in_camera_np, np.identity(3), np.array([[0.0,0.0,0.0]]), cameraMatrix, distCoeffs)
+        u = ret[0][0][0]
+        v = ret[0][0][1]
+
+        #print "x_out: ", x
+        #print "y_out: ", y
+        #This doesn't appear to be working properly
+
+        print "(u,v): ", u,v
+        return (v,u)
 
     def get_light_state(self, light):
         """Determines the current color of the traffic light
@@ -194,6 +225,13 @@ class TLDetector(object):
         x, y = self.project_to_image_plane(light.pose.pose.position)
 
         #TODO use light location to zoom in on traffic light in image
+
+        cv2.circle(cv_image,(int(x),int(y)),10,(150,100,0),-1)
+        ros_image = Image()
+        ros_image = self.bridge.cv2_to_imgmsg(cv_image)
+
+        self.image_color_traffic.publish(ros_image)
+
 
         #Get classification
         return self.light_classifier.get_classification(cv_image)
@@ -227,8 +265,8 @@ class TLDetector(object):
 
         if(self.pose):
             car_position = self.get_closest_waypoint(self.pose.pose)
-            if car_position >=0:
-                print car_position
+            #if car_position >=0:
+                #print car_position
 
         #TODO find the closest visible traffic light (if one exists)
         lp_i = -1
@@ -251,8 +289,8 @@ class TLDetector(object):
                     min_lp_dist = dist
                     min_lp_i = lp_i
 
-            #print min_lp_i;
-            #print min_lp_dist;
+            print "next light: ", min_lp_i;
+            print "dist to light: ", int(min_lp_dist);
 
             #determine if the light is in the camera frame.
             #You would think there is a more sophisticated way to do this, but I
@@ -260,10 +298,11 @@ class TLDetector(object):
             #we also don't have the traffic light heights
             if min_lp_dist < 175.0: #you can see a light generally at 175m distance
                 #light = light_wps[lp_i] #waypoint position of the nearest light
-                print min_lp_i
+
                 light = self.lights[min_lp_i]
                 light_wp = light_wps[min_lp_i]
-                print str(light.pose)
+                #print min_lp_i
+                #print str(light.pose)
 
 
 
