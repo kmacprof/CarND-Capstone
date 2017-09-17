@@ -10,6 +10,7 @@ from light_classification.tl_classifier import TLClassifier
 import tf
 import cv2
 import yaml
+import math
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -49,6 +50,7 @@ class TLDetector(object):
         self.last_wp = -1
         self.state_count = 0
 
+        self.use_gt = 1
         rospy.spin()
 
     def pose_cb(self, msg):
@@ -59,7 +61,45 @@ class TLDetector(object):
 
     def traffic_cb(self, msg):
         self.lights = msg.lights
+        
+        # workaround to use ground truth data until image_cb is set up
+        if self.use_gt and self.waypoints: 
 
+            nearest_dist = 1e8
+            # get nearest wp to vehicle
+            vehicle_wp = self.get_closest_waypoint(self.pose)
+
+            # go through all traffic lights
+            for light in self.lights:
+
+                # get nearest wp to light
+                tl_wp = self.get_closest_waypoint(light.pose)
+
+                #rospy.loginfo(str(light.state))
+                # if light is red or yellow
+                if (light.state == TrafficLight.RED) or (light.state == TrafficLight.YELLOW):
+                    
+                    if tl_wp < vehicle_wp:
+                        wp_dist = tl_wp + (len(self.waypoints.waypoints)-vehicle_wp)
+                    else:
+                        wp_dist = tl_wp - vehicle_wp
+
+                    # if wp index distance is less than current nearest, set as nearest
+                    if wp_dist < nearest_dist:
+                        
+                        state = light.state
+                        # update nearest waypoint distance
+                        nearest_dist = wp_dist
+                        # set to nearest index
+                        light_wp = tl_wp
+
+            # publish nearest red waypoint to /traffic/vehicle
+            self.last_state = self.state
+            light_wp = light_wp if state == TrafficLight.RED else -1
+            self.last_wp = light_wp
+            self.upcoming_red_light_pub.publish(Int32(light_wp))
+            self.waypoints = None
+            self.lights = None
     def image_cb(self, msg):
         """Identifies red lights in the incoming camera image and publishes the index
             of the waypoint closest to the red light to /traffic_waypoint
@@ -68,27 +108,28 @@ class TLDetector(object):
             msg (Image): image from car-mounted camera
 
         """
-        self.has_image = True
-        self.camera_image = msg
-        light_wp, state = self.process_traffic_lights()
+        if not self.use_gt:
+            self.has_image = True
+            self.camera_image = msg
+            light_wp, state = self.process_traffic_lights()
 
-        '''
-        Publish upcoming red lights at camera frequency.
-        Each predicted state has to occur `STATE_COUNT_THRESHOLD` number
-        of times till we start using it. Otherwise the previous stable state is
-        used.
-        '''
-        if self.state != state:
-            self.state_count = 0
-            self.state = state
-        elif self.state_count >= STATE_COUNT_THRESHOLD:
-            self.last_state = self.state
-            light_wp = light_wp if state == TrafficLight.RED else -1
-            self.last_wp = light_wp
-            self.upcoming_red_light_pub.publish(Int32(light_wp))
-        else:
-            self.upcoming_red_light_pub.publish(Int32(self.last_wp))
-        self.state_count += 1
+            '''
+            Publish upcoming red lights at camera frequency.
+            Each predicted state has to occur `STATE_COUNT_THRESHOLD` number
+            of times till we start using it. Otherwise the previous stable state is
+            used.
+            '''
+            if self.state != state:
+                self.state_count = 0
+                self.state = state
+            elif self.state_count >= STATE_COUNT_THRESHOLD:
+                self.last_state = self.state
+                light_wp = light_wp if state == TrafficLight.RED else -1
+                self.last_wp = light_wp
+                self.upcoming_red_light_pub.publish(Int32(light_wp))
+            else:
+                self.upcoming_red_light_pub.publish(Int32(self.last_wp))
+            self.state_count += 1
 
     def get_closest_waypoint(self, pose):
         """Identifies the closest path waypoint to the given position
@@ -100,8 +141,22 @@ class TLDetector(object):
             int: index of the closest waypoint in self.waypoints
 
         """
-        #TODO implement
-        return 0
+        #TODO implement more efficient algo if required
+
+        # naive implementation
+        min_dist = 1e8
+        min_wp = -1
+        dl = lambda a, b: math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2  + (a.z-b.z)**2)
+
+        if self.waypoints is not None:
+            for i in range(len(self.waypoints.waypoints)):
+                
+                # determine distance
+                dist = dl(self.waypoints.waypoints[i].pose.pose.position, pose.pose.position)
+                if dist < min_dist:
+                    min_dist = dist
+                    min_wp = i
+        return min_wp 
 
 
     def project_to_image_plane(self, point_in_world):
@@ -176,7 +231,7 @@ class TLDetector(object):
         light = None
         light_positions = self.config['light_positions']
         if(self.pose):
-            car_position = self.get_closest_waypoint(self.pose.pose)
+            car_position = self.get_closest_waypoint(self.pose)
 
         #TODO find the closest visible traffic light (if one exists)
 
