@@ -63,12 +63,14 @@ class TLDetector(object):
         self.lights = msg.lights
         
         # workaround to use ground truth data until image_cb is set up
-        if self.use_gt and self.waypoints: 
+        if self.use_gt and self.waypoints and self.pose:
 
             nearest_dist = 1e8
             # get nearest wp to vehicle
             vehicle_wp = self.get_closest_waypoint(self.pose)
 
+            light_wp = -1
+            state = TrafficLight.UNKNOWN
             # go through all traffic lights
             for light in self.lights:
 
@@ -95,7 +97,6 @@ class TLDetector(object):
 
             # publish nearest red waypoint to /traffic/vehicle
             self.last_state = self.state
-            light_wp = light_wp if state == TrafficLight.RED else -1
             self.last_wp = light_wp
             self.upcoming_red_light_pub.publish(Int32(light_wp))
             self.waypoints = None
