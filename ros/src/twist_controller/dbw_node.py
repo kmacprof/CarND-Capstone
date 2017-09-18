@@ -35,11 +35,6 @@ class DBWNode(object):
     def __init__(self):
         rospy.init_node('dbw_node')
 
-        # TODO: We may want to use some more of these.
-        brake_deadband = rospy.get_param('~brake_deadband', .1)
-        decel_limit = rospy.get_param('~decel_limit', -5)
-        accel_limit = rospy.get_param('~accel_limit', 1.)
-
         self.steer_pub = rospy.Publisher('/vehicle/steering_cmd',
                                          SteeringCmd, queue_size=1)
         self.throttle_pub = rospy.Publisher('/vehicle/throttle_cmd',
@@ -50,6 +45,9 @@ class DBWNode(object):
         self.controller = Controller(
             vehicle_mass=rospy.get_param('~vehicle_mass', 1736.35),
             wheel_radius=rospy.get_param('~wheel_radius', 0.2413),
+            brake_deadband=rospy.get_param('~brake_deadband', .1),
+            decel_limit=rospy.get_param('~decel_limit', -5.),
+            accel_limit=rospy.get_param('~accel_limit', 1.),
             wheel_base=rospy.get_param('~wheel_base', 2.8498),
             steer_ratio=rospy.get_param('~steer_ratio', 14.8),
             max_lat_accel=rospy.get_param('~max_lat_accel', 3.),

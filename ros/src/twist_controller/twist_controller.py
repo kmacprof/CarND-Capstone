@@ -23,15 +23,18 @@ YAW_CONTROLLER_MIN_SPEED = 1.0
 
 
 class Controller(object):
-    def __init__(self, vehicle_mass, wheel_radius,
+    def __init__(self, vehicle_mass, wheel_radius, brake_deadband,
+                 decel_limit, accel_limit,
                  wheel_base, steer_ratio, max_lat_accel, max_steer_angle):
 
         self.twist_cmd = None
         self.current_velocity = None
         self.vehicle_mass = vehicle_mass
+        self.brake_deadband = brake_deadband
         self.wheel_radius = wheel_radius
 
-        self.speed_pid = PID(SPEED_KP, SPEED_KI, SPEED_KD)
+        self.speed_pid = PID(
+            SPEED_KP, SPEED_KI, SPEED_KD, decel_limit, accel_limit)
         self.yaw_controller = YawController(
             wheel_base, steer_ratio, YAW_CONTROLLER_MIN_SPEED,
             max_lat_accel, max_steer_angle)
@@ -69,13 +72,18 @@ class Controller(object):
         if speed_control >= 0:
             throttle = speed_control
             brake = 0
-        else:
+        elif speed_control <= self.brake_deadband:
             # If we are braking, the control is the torque to be applied by
             # the brakes. We know the braking force we want from F=ma where
             # m is the mass of the vehicle and a is the control value, so
             # multiply by the wheel radius to get the required torque.
             throttle = 0
             brake = -speed_control * self.vehicle_mass * self.wheel_radius
+        else:
+            # We are in the braking deadband; just let the engine brake rather
+            # than using the wheel brakes.
+            throttle = 0
+            brake = 0
 
         rospy.logwarn_throttle(
             1,
