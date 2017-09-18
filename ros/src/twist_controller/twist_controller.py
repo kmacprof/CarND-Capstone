@@ -23,12 +23,13 @@ YAW_CONTROLLER_MIN_SPEED = 1.0
 
 
 class Controller(object):
-    def __init__(self, wheel_base, steer_ratio, max_lat_accel,
-                 max_steer_angle):
+    def __init__(self, vehicle_mass, wheel_radius,
+                 wheel_base, steer_ratio, max_lat_accel, max_steer_angle):
 
         self.twist_cmd = None
         self.current_velocity = None
-        self.displacement = None
+        self.vehicle_mass = vehicle_mass
+        self.wheel_radius = wheel_radius
 
         self.speed_pid = PID(SPEED_KP, SPEED_KI, SPEED_KD)
         self.yaw_controller = YawController(
@@ -69,8 +70,16 @@ class Controller(object):
             throttle = speed_control
             brake = 0
         else:
+            # If we are braking, the control is the torque to be applied by
+            # the brakes. We know the braking force we want from F=ma where
+            # m is the mass of the vehicle and a is the control value, so
+            # multiply by the wheel radius to get the required torque.
             throttle = 0
-            brake = -speed_control
+            brake = -speed_control * self.vehicle_mass * self.wheel_radius
+
+        rospy.logwarn_throttle(
+            1,
+            'target=%.2f t=%.2f b=%.2f' % (target_speed, throttle, brake))
 
         steer = self.yaw_controller.get_steering(
             target_speed, target_angular_velocity, current_speed)
