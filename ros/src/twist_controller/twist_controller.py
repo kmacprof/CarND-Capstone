@@ -85,9 +85,9 @@ class Controller(object):
             throttle = 0
             brake = 0
 
-        rospy.logwarn_throttle(
-            1,
-            'target=%.2f t=%.2f b=%.2f' % (target_speed, throttle, brake))
+        # rospy.logwarn_throttle(
+        #     1,
+        #     'target=%.2f t=%.2f b=%.2f' % (target_speed, throttle, brake))
 
         steer = self.yaw_controller.get_steering(
             target_speed, target_angular_velocity, current_speed)
