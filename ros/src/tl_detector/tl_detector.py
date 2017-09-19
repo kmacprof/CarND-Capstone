@@ -165,9 +165,13 @@ class TLDetector(object):
         tvec = np.array(trans)
         #print str(rot)
         #print str(rvec)
+
+        #SIM
+        fx = fx * 2000.0
+        fy = fy * 1000.0
         cameraMatrix = np.array([[fx,  0, image_width/2],
-                                       [ 0, fy, image_height/2],
-                                       [ 0,  0,  1]])
+                                [ 0, fy, image_height/2],
+                                [ 0,  0,  1]])
         distCoeffs = None
         ret, _ = cv2.projectPoints(objectPoints, rvec, tvec, cameraMatrix, distCoeffs)
         #print str(ret)
@@ -192,18 +196,23 @@ class TLDetector(object):
         point_in_camera = Point(point_in_camera_h[0][0],
                                 point_in_camera_h[1][0],
                                 point_in_camera_h[2][0])
-        #print "point in camera: ", point_in_camera
-        point_in_camera_np = np.array([[point_in_camera.x, point_in_camera.y,point_in_camera.z]])
-        ret, _ = cv2.projectPoints(point_in_camera_np, np.identity(3), np.array([[0.0,0.0,0.0]]), cameraMatrix, distCoeffs)
-        u = ret[0][0][0]
-        v = ret[0][0][1]
+        #print "cam_M: ", cameraMatrix
+        print "point in camera: ", str(point_in_camera)
+
+        #Note the coordinate change to be in line with the cv2 function documentation
+        #http://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html
+        point_in_camera_np = np.array([[-point_in_camera.y, -point_in_camera.z, point_in_camera.x]])
+        ret2, _ = cv2.projectPoints(point_in_camera_np, np.identity(3), np.array([[0.0,0.0,0.0]]), cameraMatrix, distCoeffs)
+        u = ret2[0][0][0]
+        v = ret2[0][0][1]
 
         #print "x_out: ", x
         #print "y_out: ", y
         #This doesn't appear to be working properly
+                # Note that X is pointing forward, Y to the left and Z up
 
         print "(u,v): ", u,v
-        return (v,u)
+        return (u,v)
 
     def get_light_state(self, light):
         """Determines the current color of the traffic light
@@ -257,7 +266,7 @@ class TLDetector(object):
             lpPose = Pose()
             lpPose.position.x = lp[0] # x
             lpPose.position.y = lp[1] # y
-            lpPose.position.z = 0
+            lpPose.position.z = 5.6 # z [m]
             lp_wp_i = self.get_closest_waypoint(lpPose)
             light_wps.append(lp_wp_i)
 
@@ -289,8 +298,8 @@ class TLDetector(object):
                     min_lp_dist = dist
                     min_lp_i = lp_i
 
-            print "next light: ", min_lp_i;
-            print "dist to light: ", int(min_lp_dist);
+            #print "next light: ", min_lp_i;
+            #print "dist to light: ", int(min_lp_dist);
 
             #determine if the light is in the camera frame.
             #You would think there is a more sophisticated way to do this, but I
@@ -299,8 +308,19 @@ class TLDetector(object):
             if min_lp_dist < 175.0: #you can see a light generally at 175m distance
                 #light = light_wps[lp_i] #waypoint position of the nearest light
 
-                light = self.lights[min_lp_i]
+                #Make a TL obeject to pass to get_light_state
+                light = TrafficLight()
+                light.pose.pose.position.x = light_positions[min_lp_i][0]
+                light.pose.pose.position.y = light_positions[min_lp_i][1]
+                light.pose.pose.position.z = 5.6 # we don't have height information assume 5.6
+                #light = self.lights[min_lp_i] # can't use this in final solution
                 light_wp = light_wps[min_lp_i]
+                br = tf.TransformBroadcaster()
+                br.sendTransform((light.pose.pose.position.x,light.pose.pose.position.y,light.pose.pose.position.z),
+                                tf.transformations.quaternion_from_euler(0, 0, 0),
+                                rospy.Time.now(),
+                                "next_light",
+                                "world")
                 #print min_lp_i
                 #print str(light.pose)
 
