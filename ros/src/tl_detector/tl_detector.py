@@ -14,6 +14,7 @@ from math import sqrt
 import numpy as np
 
 STATE_COUNT_THRESHOLD = 3
+SIM_FLAG = False
 
 class TLDetector(object):
     def __init__(self):
@@ -57,6 +58,14 @@ class TLDetector(object):
 
     def pose_cb(self, msg):
         self.pose = msg
+
+        #ROSBAG base_link tf publisher-------------
+        br = tf.TransformBroadcaster()
+        br.sendTransform((msg.pose.position.x,msg.pose.position.y,msg.pose.position.z),
+                        (msg.pose.orientation.x,msg.pose.orientation.y,msg.pose.orientation.z,msg.pose.orientation.w),
+                        rospy.Time.now(),
+                        "base_link",
+                        "world")
 
     def waypoints_cb(self, waypoints):
         self.waypoints = waypoints
@@ -112,11 +121,9 @@ class TLDetector(object):
         if self.waypoints:
             for wp in self.waypoints.waypoints:
                 wp_i = wp_i+1
-                #print str(wp.pose.pose.position.x)
-                #print str(wp.pose.pose.position.y)
-                x = wp.pose.pose.position.x - pose.position.x
-                y = wp.pose.pose.position.y - pose.position.y
-                dist = sqrt(x*x+y*y)
+                dx = wp.pose.pose.position.x - pose.position.x
+                dy = wp.pose.pose.position.y - pose.position.y
+                dist = sqrt(dx*dx+dy*dy)
                 if dist < min_dist:
                     min_wp = wp_i
                     min_dist = dist
@@ -150,25 +157,39 @@ class TLDetector(object):
             (trans, rot) = self.listener.lookupTransform("/base_link",
                   "/world", now)
 
+
         except (tf.Exception, tf.LookupException, tf.ConnectivityException):
             rospy.logerr("Failed to find camera to map transform")
 
         #TODO Use tranform and rotation to calculate 2D position of light in image
 
-        #print str(trans)
-        #print str(rot)
-        #print str(point_in_world)
+        #OPTION Zero: Use ROS tf to find the transform between camera and light
+        # try:
+        #     now = rospy.Time.now()
+        #     self.listener.waitForTransform("/next_light",
+        #           "/base_link", now, rospy.Duration(1.0))
+        #     (trans2, rot2) = self.listener.lookupTransform("/next_light",
+        #           "/base_link", now)
+        #     print "trans_base_light: ", str(trans2)
+        #     print "rot_base_light: ",str(rot2)
+        #
+        # except (tf.Exception, tf.LookupException, tf.ConnectivityException):
+        #     rospy.logerr("Failed to find camera to light transform")
 
-        #1. Try to project the camera points using the base_link to global tf with traffic light points in global frame
-        objectPoints = np.array([[point_in_world.x, point_in_world.y,point_in_world.z]])
+
+        #print str(point_in_world)
+        ## OPTION 1 Try to project the camera points using the base_link to global tf with traffic light points in global frame
+        #Note the coordinate change to be in line with the cv2 function documentation
+        objectPoints = np.array([[-point_in_world.y, -point_in_world.z, point_in_world.x]])
         rvec = tf.transformations.quaternion_matrix(rot)[:3, :3]
         tvec = np.array(trans)
         #print str(rot)
         #print str(rvec)
 
         #SIM
-        fx = fx * 2000.0
-        fy = fy * 1000.0
+        if SIM_FLAG == True:
+            fx = fx * 2000.0
+            fy = fy * 1000.0
         cameraMatrix = np.array([[fx,  0, image_width/2],
                                 [ 0, fy, image_height/2],
                                 [ 0,  0,  1]])
@@ -178,41 +199,41 @@ class TLDetector(object):
 
         x = ret[0][0][0]
         y = ret[0][0][1]
+        #Probably having trouble with trans / rot in wrong coordinates!
 
+        ## OPTION 2. Transform light position into vehicle frame---------
 
         # Try to project the camera points using the traffic light point in car_frame
         # Create transformation matrix
         T = self.listener.fromTranslationRotation(trans, rot)
 
         # Transform point from world to camera using homogeneous coordinates
-        point_in_world_h = np.array([[point_in_world.x],
+        point_in_world_np = np.array([[point_in_world.x],
                                      [point_in_world.y],
                                      [point_in_world.z],
                                      [1.0]])
-
-        point_in_camera_h = np.dot(T, point_in_world_h)
+        #Tranform point to vehicle frame
+        point_base_link_np = np.dot(T, point_in_world_np)
 
         # Output as a Point
-        point_in_camera = Point(point_in_camera_h[0][0],
-                                point_in_camera_h[1][0],
-                                point_in_camera_h[2][0])
-        #print "cam_M: ", cameraMatrix
-        print "point in camera: ", str(point_in_camera)
+        point_base_link= Point(point_base_link_np[0][0],
+                                point_base_link_np[1][0],
+                                point_base_link_np[2][0])
+
+        #print position of next light in base_link frame
+        print "point_base_link: ", str(point_base_link)
 
         #Note the coordinate change to be in line with the cv2 function documentation
         #http://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html
-        point_in_camera_np = np.array([[-point_in_camera.y, -point_in_camera.z, point_in_camera.x]])
-        ret2, _ = cv2.projectPoints(point_in_camera_np, np.identity(3), np.array([[0.0,0.0,0.0]]), cameraMatrix, distCoeffs)
-        u = ret2[0][0][0]
-        v = ret2[0][0][1]
+        #check this coord change!<<<
+        point_base_link_np = np.array([[-point_base_link.y, -point_base_link.z, point_base_link.x]])
+        ret2, _ = cv2.projectPoints(point_base_link_np, np.identity(3), np.array([[0.0,0.0,30.0]]), cameraMatrix, distCoeffs) # 30 is used in the translation because the waypoints are for the intersections, TLs are ~30m behind intersections
+        x2 = ret2[0][0][0]
+        y2 = ret2[0][0][1]
 
-        #print "x_out: ", x
-        #print "y_out: ", y
-        #This doesn't appear to be working properly
-                # Note that X is pointing forward, Y to the left and Z up
-
-        print "(u,v): ", u,v
-        return (u,v)
+        # print "(x,y): ", x,y
+        print "(x2,y2): ", x2,y2
+        return (x2,y2)
 
     def get_light_state(self, light):
         """Determines the current color of the traffic light
@@ -222,7 +243,7 @@ class TLDetector(object):
 
         Returns:
             int: ID of traffic light color (specified in styx_msgs/TrafficLight)
-
+            Publishes an image to /image_color_traffic with a dot overlaid
         """
         if(not self.has_image):
             self.prev_light_loc = None
@@ -231,11 +252,13 @@ class TLDetector(object):
         self.camera_image.encoding = "rgb8"
         cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
 
+
         x, y = self.project_to_image_plane(light.pose.pose.position)
 
         #TODO use light location to zoom in on traffic light in image
 
-        cv2.circle(cv_image,(int(x),int(y)),10,(150,100,0),-1)
+        #draw a circle where the traffic light should be in the image
+        cv2.circle(cv_image,(int(x),int(y)),10,(190,100,0),-1)
         ros_image = Image()
         ros_image = self.bridge.cv2_to_imgmsg(cv_image)
 
@@ -254,9 +277,9 @@ class TLDetector(object):
             int: ID of traffic light color (specified in styx_msgs/TrafficLight)
 
         """
-        light = None
+        light = None #traffic light object
         light_positions = self.config['light_positions']
-        light_wps = []
+        light_wps = [] #list of global waypoint indices that are closest to the traffic lights
 
         #match light positions to waypoints so we can use the waypoint index nearest to the light
         #to determine if the light is ahead of the car_position
@@ -266,11 +289,11 @@ class TLDetector(object):
             lpPose = Pose()
             lpPose.position.x = lp[0] # x
             lpPose.position.y = lp[1] # y
-            lpPose.position.z = 5.6 # z [m]
+            lpPose.position.z = 0.5 # z [m] not used by get_closest_wapoint
             lp_wp_i = self.get_closest_waypoint(lpPose)
             light_wps.append(lp_wp_i)
 
-
+        car_position = None
 
         if(self.pose):
             car_position = self.get_closest_waypoint(self.pose.pose)
@@ -281,15 +304,15 @@ class TLDetector(object):
         lp_i = -1
         min_lp_i = -1
         min_lp_dist = 99999;
-        if car_position >=0:
+        if car_position and car_position >=0:
             #iterate through light positions, find closest light
             for lp in light_positions:
                 #print str(lp)
                 lp_i = lp_i + 1
                 lp_x = lp[0]
                 lp_y = lp[1]
-                dx = self.waypoints.waypoints[car_position].pose.pose.position.x - lp_x
-                dy = self.waypoints.waypoints[car_position].pose.pose.position.y - lp_y
+                dx = self.pose.pose.position.x - lp_x
+                dy = self.pose.pose.position.y - lp_y
                 dist = sqrt(dx*dx+dy*dy)
 
                 #if the waypoint index closest to the light is ahead of the car position
@@ -298,22 +321,20 @@ class TLDetector(object):
                     min_lp_dist = dist
                     min_lp_i = lp_i
 
-            #print "next light: ", min_lp_i;
-            #print "dist to light: ", int(min_lp_dist);
+            print "next light: ", min_lp_i;
+            print "dist to light: ", int(min_lp_dist);
 
-            #determine if the light is in the camera frame.
-            #You would think there is a more sophisticated way to do this, but I
-            #don't think we have enough information on the camera Pose / FOV
-            #we also don't have the traffic light heights
-            if min_lp_dist < 175.0: #you can see a light generally at 175m distance
-                #light = light_wps[lp_i] #waypoint position of the nearest light
+            if min_lp_dist < 99999.0:#175.0: #you can see a light generally at 175m distance
 
-                #Make a TL obeject to pass to get_light_state
+                #Make a TL msg to pass to get_light_state
                 light = TrafficLight()
                 light.pose.pose.position.x = light_positions[min_lp_i][0]
                 light.pose.pose.position.y = light_positions[min_lp_i][1]
-                light.pose.pose.position.z = 5.6 # we don't have height information assume 5.6
-                #light = self.lights[min_lp_i] # can't use this in final solution
+                light.pose.pose.position.z = 0.5 # Site
+                if SIM_FLAG == True:
+                    light.pose.pose.position.z = 5.6 # Sim we don't have height information assume 5.6
+
+                #light = self.lights[min_lp_i] # Light's pose from /vehicle/traffic_lights can't use this in final solution
                 light_wp = light_wps[min_lp_i]
                 br = tf.TransformBroadcaster()
                 br.sendTransform((light.pose.pose.position.x,light.pose.pose.position.y,light.pose.pose.position.z),
