@@ -227,7 +227,7 @@ class TLDetector(object):
         #http://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html
         #check this coord change!<<<
         point_base_link_np = np.array([[-point_base_link.y, -point_base_link.z, point_base_link.x]])
-        ret2, _ = cv2.projectPoints(point_base_link_np, np.identity(3), np.array([[0.0,0.0,30.0]]), cameraMatrix, distCoeffs) # 30 is used in the translation because the waypoints are for the intersections, TLs are ~30m behind intersections
+        ret2, _ = cv2.projectPoints(point_base_link_np, np.identity(3), np.array([[0.0,0.0,0.0]]), cameraMatrix, distCoeffs) # 30 is used in the translation because the waypoints are for the intersections, TLs are ~30m behind intersections
         x2 = ret2[0][0][0]
         y2 = ret2[0][0][1]
 
